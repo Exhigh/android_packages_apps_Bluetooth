@@ -339,6 +339,9 @@ public class BluetoothOppService extends ProfileService implements IObexConnecti
                             mUpdateThread = null;
                         }
                     }
+
+                    if(mNotifier == null) return;
+
                     mNotifier.cancelNotifications();
                     break;
                 case START_LISTENER:
