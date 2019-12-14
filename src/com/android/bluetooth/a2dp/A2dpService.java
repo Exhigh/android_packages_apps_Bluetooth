@@ -800,7 +800,7 @@ public class A2dpService extends ProfileService {
      * @param sameAudioFeedingParameters if true the audio feeding parameters
      * haven't been changed
      */
-    void codecConfigUpdated(BluetoothDevice device, BluetoothCodecStatus codecStatus,
+    public void codecConfigUpdated(BluetoothDevice device, BluetoothCodecStatus codecStatus,
                             boolean sameAudioFeedingParameters) {
         broadcastCodecConfig(device, codecStatus);
 
@@ -921,10 +921,15 @@ public class A2dpService extends ProfileService {
         }
     }
 
-    private void updateOptionalCodecsSupport(BluetoothDevice device) {
+    /**
+     * Update and initiate optional codec status change to native.
+     *
+     * @param device the device to change optional codec status
+     */
+    public void updateOptionalCodecsSupport(BluetoothDevice device) {
         int previousSupport = getSupportsOptionalCodecs(device);
         boolean supportsOptional = false;
-
+       
         synchronized (mStateMachines) {
             A2dpStateMachine sm = mStateMachines.get(device);
             if (sm == null) {
@@ -933,18 +938,24 @@ public class A2dpService extends ProfileService {
             BluetoothCodecStatus codecStatus = sm.getCodecStatus();
             if (codecStatus != null) {
                 for (BluetoothCodecConfig config : codecStatus.getCodecsSelectableCapabilities()) {
+                     if(config.isMandatoryCodec()){
+                         
                     boolean isMandatoryCodecWithDualChannel = (config.isMandatoryCodec()
                             && (config.getChannelMode() & config.CHANNEL_MODE_DUAL_CHANNEL)
                                    == config.CHANNEL_MODE_DUAL_CHANNEL);
-                    if (!config.isMandatoryCodec() || isMandatoryCodecWithDualChannel) {
+
+                     if (isMandatoryCodecWithDualChannel) {
                         supportsOptional = true;
                         break;
+                       }
+
                     }
                 }
             }
         }
         if (previousSupport == BluetoothA2dp.OPTIONAL_CODECS_SUPPORT_UNKNOWN
-                || previousSupport == BluetoothA2dp.OPTIONAL_CODECS_NOT_SUPPORTED) {
+               || supportsOptional != (previousSupport
+                                    == BluetoothA2dp.OPTIONAL_CODECS_SUPPORTED)) {
             setSupportsOptionalCodecs(device, supportsOptional);
         }
         if (supportsOptional
@@ -964,10 +975,6 @@ public class A2dpService extends ProfileService {
         }
         synchronized (mStateMachines) {
             if (toState == BluetoothProfile.STATE_CONNECTED) {
-                // Each time a device connects, we want to re-check if it supports optional
-                // codecs (perhaps it's had a firmware update, etc.) and save that state if
-                // it differs from what we had saved before.
-                updateOptionalCodecsSupport(device);
                 MetricsLogger.logProfileConnectionEvent(BluetoothMetricsProto.ProfileId.A2DP);
             }
             // Set the active device if only one connected device is supported and it was connected

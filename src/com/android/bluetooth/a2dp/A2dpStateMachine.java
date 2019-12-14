@@ -88,7 +88,8 @@ final class A2dpStateMachine extends StateMachine {
 
     private A2dpService mA2dpService;
     private A2dpNativeInterface mA2dpNativeInterface;
-    private boolean mA2dpOffloadEnabled = false;
+    @VisibleForTesting
+    boolean mA2dpOffloadEnabled = false;
     private final BluetoothDevice mDevice;
     private boolean mIsPlaying = false;
     private BluetoothCodecStatus mCodecStatus;
@@ -468,6 +469,10 @@ final class A2dpStateMachine extends StateMachine {
 
             removeDeferredMessages(CONNECT);
 
+            // Each time a device connects, we want to re-check if it supports optional
+            // codecs (perhaps it's had a firmware update, etc.) and save that state if
+            // it differs from what we had saved before.
+            mA2dpService.updateOptionalCodecsSupport(mDevice);
             broadcastConnectionState(mConnectionState, mLastConnectionState);
             // Upon connected, the audio starts out as stopped
             broadcastAudioState(BluetoothA2dp.STATE_NOT_PLAYING,
@@ -612,7 +617,10 @@ final class A2dpStateMachine extends StateMachine {
 
     // NOTE: This event is processed in any state
     private void processCodecConfigEvent(BluetoothCodecStatus newCodecStatus) {
+    void processCodecConfigEvent(BluetoothCodecStatus newCodecStatus) {
         BluetoothCodecConfig prevCodecConfig = null;
+        BluetoothCodecStatus prevCodecStatus = mCodecStatus;
+
         synchronized (this) {
             if (mCodecStatus != null) {
                 prevCodecConfig = mCodecStatus.getCodecConfig();
@@ -631,6 +639,14 @@ final class A2dpStateMachine extends StateMachine {
                      newCodecStatus.getCodecsSelectableCapabilities()) {
                 Log.d(TAG, "A2DP Codec Selectable Capability: " + codecConfig);
             }
+        }
+
+        if (isConnected() && !sameSelectableCodec(prevCodecStatus, mCodecStatus)) {
+             // Remote selectable codec could be changed if codec config changed
+             // in connected state, we need to re-check optional codec status
+             // for this codec change event.
+             Log.d(TAG,"updating optional codec support as previous and current codec are different.");
+             mA2dpService.updateOptionalCodecsSupport(mDevice);
         }
 
         if (mA2dpOffloadEnabled) {
@@ -713,6 +729,16 @@ final class A2dpStateMachine extends StateMachine {
                 break;
         }
         return Integer.toString(what);
+    }
+
+     private static boolean sameSelectableCodec(BluetoothCodecStatus prevCodecStatus,
+                                      BluetoothCodecStatus newCodecStatus) {
+        if (prevCodecStatus == null) {
+            return false;
+        }
+        return BluetoothCodecStatus.sameCapabilities(
+                prevCodecStatus.getCodecsSelectableCapabilities(),
+                newCodecStatus.getCodecsSelectableCapabilities());
     }
 
     private static String profileStateToString(int state) {
